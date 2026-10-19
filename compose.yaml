@@ -1,0 +1,85 @@
+# map_edit 开发容器：GPU 直通 + 宿主机 X11 透传
+#
+# 用途：在共用环境镜像里编译本插件，并在宿主机桌面上弹出 rviz2 窗口。
+# 不做构建自动化，起来就是交互 shell，构建与启动由你手动执行。
+#
+# 用法：
+#   docker compose up -d            # 起容器（后台）
+#   docker compose exec dev bash    # 进入 shell（交互式，自动加载 ROS 环境）
+#   docker compose down             # 停止并删除容器（构建产物保留在宿主机）
+#
+# 进容器后（当前目录已是 /ws）：
+#   colcon build --symlink-install
+#   source install/setup.bash
+#   ros2 launch map_edit map_edit.launch.py
+#
+# 注意：交互式 shell 靠 ~/.bashrc 自动 source ROS 环境，因此必须用
+# `docker compose exec dev bash`，不要加 -l/-lc。容器基础 .bashrc 第 6 行有
+# `[ -z "$PS1" ] && return`，非交互的 bash -lc 会在这里提前返回，
+# 导致 ros2 命令找不到。
+#
+# 显示环境依赖宿主机 X11 会话。若图形界面打不开，先确认宿主机上
+#   echo $DISPLAY             # 本机为 :1
+#   echo $XAUTHORITY          # 本机为 /run/user/1000/gdm/Xauthority
+# 与下方 environment 一致。
+
+services:
+  dev:
+    image: alphabet2006/gxu2026-nav-env:amd64-latest
+    container_name: map_edit_dev
+    hostname: map_edit_dev
+
+    # GPU 直通：nvidia-container-toolkit 会把驱动库与 /dev/nvidia* 注入容器。
+    # 注意：本机 X11 实际由 AMD 核显（Mesa）驱动，rviz 渲染器会落到
+    # RAPHAEL_MENDOCINO 而非 4060 独显。这是宿主机 X server 的选择结果，
+    # 不是本 compose 能改变的；强制 __GLX_VENDOR_LIBRARY_NAME=nvidia 会报
+    # NV-GLX BadValue。
+    # 若宿主机无 GPU，删掉整个 deploy 段即可，Mesa 软渲染仍可运行。
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, graphics, utility]
+
+    environment:
+      # 与宿主机 X11 会话对齐。换机器或换会话后需同步修改这两项。
+      DISPLAY: ":1"
+      XAUTHORITY: "/tmp/.docker.xauth"
+      QT_X11_NO_MITSHM: "1"
+      # ROS 默认域，避免与宿主机上其他 ROS 2 进程串话
+      ROS_DOMAIN_ID: "42"
+
+    volumes:
+      # 源码可写挂载，容器内改文件立即生效
+      - ./:/ws/src/map_edit
+      # 构建产物写回项目目录（已在 .gitignore 中忽略）
+      - ./build:/ws/build
+      - ./install:/ws/install
+      - ./log:/ws/log
+      # X11 socket 与 xauth 文件
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY}:/tmp/.docker.xauth:ro
+
+    # 用 GID 数字而非组名：镜像内没有 render 组，按名称解析会导致容器起不来。
+    # 44=video、110=render 取自宿主机 getent group。
+    group_add:
+      - "44"
+      - "110"
+
+    # bash 需要一个 tty，否则会立即退出。
+    # entrypoint 用镜像自带的 /ros_entrypoint.sh：它负责 source ROS 环境、
+    # 解析 BRANCH_NAME/BRANCH_SAFE、桥接 rosdep 缓存、写入 ~/.bashrc 的自动 source。
+    # 覆盖成 /bin/bash 会丢掉这些，导致进入容器后 ros2 命令不存在。
+    stdin_open: true
+    tty: true
+    working_dir: /ws
+    entrypoint: ["/ros_entrypoint.sh"]
+    command: ["bash"]
+
+    # rviz 需要较宽的共享内存，默认 64MB 在编辑大图时不够
+    shm_size: "1gb"
+
+    # 不应随系统自启
+    restart: "no"
