@@ -10,7 +10,6 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rviz_common REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Quick Qml QuickWidgets)
-find_package(ament_index_cpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(rviz_rendering REQUIRED)
@@ -66,7 +65,6 @@ target_link_libraries(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rviz_common
-  ament_index_cpp
   nav_msgs
   tf2_ros
   rviz_rendering

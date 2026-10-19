@@ -41,7 +41,7 @@
 | `cv_bridge` | `ros-humble-cv-bridge` | 3.2.1 |
 | `tf2` / `tf2_ros` / `tf2_geometry_msgs` | `ros-humble-tf2*` | 0.25.22 |
 | `nav_msgs` / `sensor_msgs` / `geometry_msgs` / `visualization_msgs` | `ros-humble-*-msgs` | 4.9.2 |
-| `ament_index_cpp` | `ros-humble-ament-index-cpp` | 1.4.1（注意：源码实际未使用，见 §3.3） |
+| `ament_index_cpp` | `ros-humble-ament-index-cpp` | 1.4.1（本项目已移除该依赖，见 §3.3） |
 | 运行期 `rviz2` | `ros-humble-rviz2` | 11.2.28 |
 | 构建工具链 | `cmake` / `g++` / `ninja` / `ccache` / `colcon` | 3.22.1 / 11.4.0 / 1.10.1 / 4.5.1 / `python3-colcon-common-extensions` |
 
@@ -79,7 +79,7 @@ colcon build \
 
 ### 3.3 `package.xml` 声明（已补齐）
 
-原始状态的 `package.xml` 只声明了 `rviz_common`、`yaml-cpp`、`pcl_conversions` 三项，而 `CMakeLists.txt` 有 16 个 `find_package`。在当前镜像里没有影响（全已安装），但按 README 的 `rosdep install` 流程换机器时会缺包、在 configure 阶段失败。
+原始状态的 `package.xml` 只声明了 `rviz_common`、`yaml-cpp`、`pcl_conversions` 三项，而 `CMakeLists.txt` 原有 16 个 `find_package`（移除冗余的 `ament_index_cpp` 后为 15 个）。在当前镜像里没有影响（全已安装），但按 `readme.md` 里的 `rosdep install` 流程换机器时会缺包、在 configure 阶段失败。
 
 现已按源码实际 include 补齐：
 
@@ -88,18 +88,20 @@ colcon build \
 | 编译/链接 | `rclcpp` | `map_eraser_tool.h:13` |
 | 编译/链接 | `rviz_common`、`rviz_rendering` | `rviz_common/tool.hpp`、`rviz_rendering/viewport_projection_finder.hpp` |
 | 编译/链接 | `pluginlib` | 三个 cpp 的 `class_list_macros.hpp` |
-| 编译/链接 | `tf2`、`tf2_ros`、`tf2_geometry_msgs` | `map_eraser_tool.h:11,12,14,24`、`map_edit_panel.h:37,47` |
+| 编译/链接 | `tf2` | `map_eraser_tool.h:12`、`map_edit_panel.h:37,47` |
+| 编译/链接 | `tf2_ros` | `map_eraser_tool.h:11,14` |
+| 编译/链接 | `tf2_geometry_msgs` | `map_eraser_tool.h:24`、`map_edit_panel.h:48` |
 | 编译/链接 | `cv_bridge` | `map_eraser_tool.h:25`（仅 include，源码无调用） |
 | 编译/链接 | `nav_msgs`、`sensor_msgs`、`geometry_msgs`、`visualization_msgs` | 各头文件的消息类型 |
 | 编译/链接 | `pcl_conversions`、`yaml-cpp` | `pcd_loader.cpp:4`、`map_edit_panel.h:43` |
 | 运行期 | `launch`、`launch_ros`、`rviz2` | `launch/map_edit.launch.py:1-3` |
 | 运行期 | `nav2_rviz_plugins`、`slam_toolbox` | `rviz/default.rviz:33,35` 引用的两个插件的包 |
 
-**运行期缺口的补充说明**：`rviz/default.rviz` 引用了 `nav2_rviz_plugins/Navigation 2` 与 `slam_toolbox::SlamToolboxPlugin`。前者在镜像中存在（`ros-humble-nav2-rviz-plugins` 1.1.20），后者**镜像未安装**（`ros-humble-slam-toolbox-rviz-plugin` 缺失）。rviz 载入配置时会因找不到该类而报错并跳过该面板，不影响 MapEditPanel 本身，但会产生一条启动错误。已把两者写入 `package.xml` 的 `exec_depend`，换机器走 rosdep 可自动补上。
+**运行期缺口的补充说明**：`rviz/default.rviz` 引用了 `nav2_rviz_plugins/Navigation 2` 与 `slam_toolbox::SlamToolboxPlugin`。前者在镜像中存在（`ros-humble-nav2-rviz-plugins` 1.1.20），后者**镜像未安装**（`rosdep resolve slam_toolbox` 映射到 `ros-humble-slam-toolbox`，该包含 rviz 插件，当前未装）。rviz 载入配置时会因找不到该类而报错并跳过该面板，不影响 MapEditPanel 本身，但会产生一条启动错误。已把两者写入 `package.xml` 的 `exec_depend`，换机器走 rosdep 可自动补上。
 
 **未写入 `package.xml` 的依赖**：`PCL`（`libpcl-dev`）、`Qt5`（`qtbase5-dev`、`qtdeclarative5-dev`）、`OpenCV`、`Ogre`。这些是系统包，rosdep 用 `pcl`、`qt5-qmake` 等 key 映射，换发行版行为可能不同；本项目走「共用镜像已装齐」这一前提，故不声明。
 
-**已知的可删依赖**：`ament_index_cpp` 在 CMake 里 `find_package` 且进了 `ament_target_dependencies`，但 `src/`、`include/` 内**没有任何使用**。它没有进 `package.xml`，属冗余声明，删掉不影响构建。
+**已移除的冗余依赖**：`ament_index_cpp` 原先在 `CMakeLists.txt` 里 `find_package` 且进了 `ament_target_dependencies`，但 `src/`、`include/` 内**没有任何使用**。已从这两处删除；删除后完整构建仍通过，产物与链接结果不变。
 
 ### 3.4 运行时
 
@@ -143,7 +145,7 @@ ls /usr/include/opencv4/opencv2/opencv.hpp
 # 挂载与产物落点确认（应指向本项目目录，而不是那个仓库）
 ls -d /ws/external/src/map_edit
 
-# 依赖声明与实际使用是否一致（无输出表示 ament_index_cpp 确实未被使用）
+# 确认已移除的冗余依赖没有回归（应只输出提示语）
 grep -rn "ament_index" src include || echo "ament_index_cpp 未被使用"
 ```
 
