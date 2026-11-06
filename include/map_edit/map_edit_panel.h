@@ -63,6 +63,12 @@ namespace map_edit
         void onInitialize() override;
         void connectTool(RegionTool *tool);
 
+        // 面板内部是多个分组的垂直堆叠，Qt 会把各组最小高度相加，得到远超
+        // 笔记本屏幕高度（本机 1600）的最小值，rviz 窗口随之被撑出屏幕，
+        // 标题栏不可见也无法拖动。重写后把高度上限压到屏幕可用范围内，
+        // 超出部分由区域列表的滚动区域承担。
+        QSize minimumSizeHint() const override;
+
     public Q_SLOTS:
         void onRegionToolInitialized();
         void onRegiontoolDeInitialized();

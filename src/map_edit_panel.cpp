@@ -1,6 +1,9 @@
 #include "map_edit/map_edit_panel.h"
 #include <pluginlib/class_list_macros.hpp>
 #include <QSlider>
+#include <QGuiApplication>
+#include <QScreen>
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -100,7 +103,23 @@ namespace map_edit
         main_layout_->addWidget(status_label_, 1);
         main_layout_->addWidget(info_label_, 1);
         main_layout_->addStretch(1);
-        setLayout(main_layout_);
+
+        // 面板内容整体放进滚动区域。此前直接把 main_layout_ 设为面板布局，
+        // 面板的最小高度等于所有分组最小高度之和（实测 1032），再与同一 dock
+        // 列里的其他 rviz 面板相加后超过屏幕高度，窗口无法缩小。包一层滚动
+        // 区域后，面板可以被压到任意高度，控件通过滚动条访问，不会被裁掉。
+        QWidget *content = new QWidget();
+        content->setLayout(main_layout_);
+
+        QScrollArea *panel_scroll = new QScrollArea(this);
+        panel_scroll->setWidgetResizable(true);
+        panel_scroll->setFrameShape(QFrame::NoFrame);
+        panel_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        panel_scroll->setWidget(content);
+
+        QVBoxLayout *outer_layout = new QVBoxLayout(this);
+        outer_layout->setContentsMargins(0, 0, 0, 0);
+        outer_layout->addWidget(panel_scroll);
 
         // 连接信号
         connect(save_all_btn_, SIGNAL(clicked()), this, SLOT(saveAllFiles()));
@@ -296,6 +315,10 @@ namespace map_edit
         region_scroll_area_ = new QScrollArea();
         region_scroll_area_->setWidgetResizable(true);
         region_scroll_area_->setFrameShape(QFrame::NoFrame);
+        // QScrollArea 默认按内容尺寸给出 sizeHint，区域卡片一多就会把整个
+        // 面板的最小高度撑到超过屏幕，导致 rviz 窗口无法缩小、标题栏被推出
+        // 可视区。限制最小高度后它改为在框内滚动，面板可以正常收缩。
+        region_scroll_area_->setMinimumHeight(120);
 
         region_container_ = new QWidget();
         region_list_layout_ = new QVBoxLayout(region_container_);
@@ -1036,16 +1059,39 @@ namespace map_edit
         yaml_out.close();
         return true;
     }
+    QSize MapEditPanel::minimumSizeHint() const
+    {
+        // 面板由若干分组垂直堆叠，布局累加出的最小高度会远超屏幕高度
+        // （实测 2137 > 1600），rviz 的 dock 不允许缩到该值以下，窗口因此
+        // 被撑出屏幕、标题栏无法抓取。这里保留布局给出的宽度，只把高度压到
+        // 屏幕可用高度以内，超出部分由内部滚动区域承担或被裁剪。
+        QSize hint = QWidget::minimumSizeHint();
+
+        int max_height = 900;
+        if (const QScreen *screen = QGuiApplication::primaryScreen())
+        {
+            const QRect available = screen->availableGeometry();
+            if (available.height() > 0)
+            {
+                // 预留标题栏与 dock 标签的空间，取可用高度的八成
+                max_height = static_cast<int>(available.height() * 0.8);
+            }
+        }
+        hint.setHeight(std::min(hint.height(), max_height));
+        return hint;
+    }
+
     void MapEditPanel::resizeEvent(QResizeEvent *event)
     {
         QWidget::resizeEvent(event);
 
         int panel_width = event->size().width();
-        int panel_height = event->size().height();
 
-        int base_size = std::max(panel_width, panel_height);
-        int font_size = std::clamp(base_size / 60, 5, 18);
-        int padding_px = std::clamp(base_size / 90, 5, 18);
+        // 只用宽度决定字号。之前取 max(宽, 高)，高度会跟着字号一起变大，
+        // 形成「字号大 -> 最小高度大 -> 窗口更高 -> 字号更大」的正反馈。
+        int base_size = panel_width;
+        int font_size = std::clamp(base_size / 100, 8, 14);
+        int padding_px = std::clamp(base_size / 140, 4, 12);
 
         QFont font;
         font.setPointSize(font_size);
